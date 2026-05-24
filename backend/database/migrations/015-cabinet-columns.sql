@@ -1,0 +1,4 @@
+ALTER TABLE party_leaders
+  ADD COLUMN IF NOT EXISTS department TEXT,
+  ADD COLUMN IF NOT EXISTS party      TEXT,
+  ADD COLUMN IF NOT EXISTS sr_no      INT;
