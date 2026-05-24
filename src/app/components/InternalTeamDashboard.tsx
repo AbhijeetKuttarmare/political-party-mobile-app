@@ -90,7 +90,7 @@ export default function InternalTeamDashboard() {
               <span className="text-sm font-semibold text-white relative z-10">Member Mgmt</span>
             </Link>
             <Link
-              to="/internal/planning"
+              to="/internal/events"
               className="bg-gradient-to-br from-emerald-500 to-green-600 rounded-2xl p-5 flex flex-col items-center gap-3 shadow-lg hover:shadow-xl transition-all active:scale-95 relative overflow-hidden"
             >
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_50%,rgba(255,255,255,0.2),transparent)]"></div>

@@ -11,6 +11,7 @@ import GroupChatScreen      from "./components/GroupChatScreen";
 import InternalTeamDashboard from "./components/InternalTeamDashboard";
 import InternalPlanning     from "./components/InternalPlanning";
 import MemberManagementScreen from "./components/MemberManagementScreen";
+import EventManagementScreen  from "./components/EventManagementScreen";
 import InternalChat         from "./components/InternalChat";
 import UserProfile          from "./components/UserProfile";
 import EventsListScreen     from "./components/EventsListScreen";
@@ -79,6 +80,7 @@ export const router = createBrowserRouter([
       { path: "community/:chatId",      Component: ChatScreen             },
       { path: "internal",               Component: InternalTeamDashboard  },
       { path: "internal/members",       Component: MemberManagementScreen },
+      { path: "internal/events",        Component: EventManagementScreen  },
       { path: "internal/planning",      Component: InternalPlanning       },
       { path: "internal/chat/:chatId",  Component: InternalChat           },
       { path: "profile",                Component: UserProfile            },

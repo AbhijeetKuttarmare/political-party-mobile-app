@@ -1,32 +1,94 @@
-import { ArrowLeft, Calendar, MapPin, Users } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { ArrowLeft, Calendar, MapPin, Users, Loader, Clock } from "lucide-react";
 import { useNavigate } from "react-router";
 import { useTheme } from "../context/ThemeContext";
+import { useAuth } from "../context/AuthContext";
+
+interface CampaignEvent {
+  id: number;
+  title: string;
+  type: string;
+  location: string;
+  district: string | null;
+  event_date: string;
+  event_time: string;
+  expected_attendance: number;
+  notes: string | null;
+  status: string;
+  like_count: number;
+  going_count: number;
+  interested_count: number;
+  liked_by_me: boolean;
+  my_rsvp: string | null;
+}
+
+const TYPE_COLORS: Record<string, string> = {
+  rally:    "from-red-500 to-pink-600",
+  meeting:  "from-blue-500 to-blue-700",
+  training: "from-orange-500 to-amber-500",
+  workshop: "from-cyan-500 to-teal-600",
+  drive:    "from-emerald-500 to-green-600",
+  summit:   "from-purple-500 to-indigo-600",
+};
+
+const TYPE_EMOJI: Record<string, string> = {
+  rally: "📣", meeting: "🤝", training: "📚",
+  workshop: "🛠️", drive: "🚗", summit: "🏔️",
+};
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+}
 
 export default function EventsListScreen() {
   const navigate = useNavigate();
   const { isDark } = useTheme();
+  const { token } = useAuth();
 
-  const allEvents = [
-    { id: 1, title: "Rally & Event Management Training", location: "Mumbai - State Level", date: "Mar 10, 2026", time: "6:00 PM", attendees: 250, category: "Training", description: "Comprehensive training for state-level coordinators on rally organization and crowd management" },
-    { id: 2, title: "Karyakarta System Onboarding", location: "All 36 Districts (Hybrid)", date: "Mar 15, 2026", time: "10:00 AM", attendees: 500, category: "Onboarding", description: "Introduction to new digital platform features including GPS tracking and task management" },
-    { id: 3, title: "District Coordinators Meeting", location: "Pune, Maharashtra", date: "Mar 18, 2026", time: "4:00 PM", attendees: 36, category: "Meeting", description: "Strategic planning session with all district coordinators for upcoming campaigns" },
-    { id: 4, title: "WhatsApp Integration Workshop", location: "Online (Virtual)", date: "Mar 20, 2026", time: "11:00 AM", attendees: 150, category: "Workshop", description: "Learn to use WhatsApp features for better communication with booth workers" },
-    { id: 5, title: "Analytics Dashboard Demo", location: "Mumbai - Party Office", date: "Mar 22, 2026", time: "3:00 PM", attendees: 80, category: "Demo", description: "Live demonstration of AI-powered analytics and real-time insights dashboard" },
-    { id: 6, title: "Booth Workers Summit", location: "Nashik, Maharashtra", date: "Mar 25, 2026", time: "9:00 AM", attendees: 400, category: "Summit", description: "Annual gathering of booth-level workers across all 288 blocks" },
-    { id: 7, title: "Social Media Strategy Session", location: "Mumbai - Party Office", date: "Mar 28, 2026", time: "5:00 PM", attendees: 60, category: "Strategy", description: "Planning social media campaigns and content calendar for Q2 2026" },
-    { id: 8, title: "Member Verification Drive", location: "All Districts", date: "Apr 1, 2026", time: "10:00 AM", attendees: 1000, category: "Campaign", description: "Statewide drive to verify and update member profiles on digital platform" },
-  ];
+  const [events, setEvents]   = useState<CampaignEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [rsvping, setRsvping] = useState<Set<number>>(new Set());
 
-  const categoryColors: Record<string, string> = {
-    Training: "from-blue-500 to-blue-600",
-    Onboarding: "from-emerald-500 to-green-600",
-    Meeting: "from-purple-500 to-purple-600",
-    Workshop: "from-orange-500 to-orange-600",
-    Demo: "from-cyan-500 to-cyan-600",
-    Summit: "from-pink-500 to-pink-600",
-    Strategy: "from-indigo-500 to-indigo-600",
-    Campaign: "from-red-500 to-red-600",
-  };
+  const authHdr = { Authorization: `Bearer ${token}` };
+
+  const loadEvents = useCallback(async () => {
+    if (!token) return;
+    try {
+      const res = await fetch("/api/campaign/events", { headers: authHdr });
+      if (res.ok) setEvents(await res.json());
+    } finally { setLoading(false); }
+  }, [token]);
+
+  useEffect(() => { loadEvents(); }, [loadEvents]);
+
+  async function handleRsvp(eventId: number, status: "going" | "interested") {
+    setRsvping(prev => new Set(prev).add(eventId));
+    try {
+      const res = await fetch(`/api/campaign/events/${eventId}/rsvp`, {
+        method: "POST",
+        headers: { ...authHdr, "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setEvents(prev => prev.map(e => {
+          if (e.id !== eventId) return e;
+          const prev_rsvp = e.my_rsvp;
+          const new_rsvp  = data.rsvp ?? null;
+          return {
+            ...e,
+            my_rsvp: new_rsvp,
+            going_count: new_rsvp === "going" ? e.going_count + 1
+              : prev_rsvp === "going" ? e.going_count - 1 : e.going_count,
+            interested_count: new_rsvp === "interested" ? e.interested_count + 1
+              : prev_rsvp === "interested" ? e.interested_count - 1 : e.interested_count,
+          };
+        }));
+      }
+    } finally {
+      setRsvping(prev => { const s = new Set(prev); s.delete(eventId); return s; });
+    }
+  }
 
   return (
     <div className={`min-h-screen ${isDark ? "bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900" : "bg-gray-50"}`}>
@@ -47,55 +109,117 @@ export default function EventsListScreen() {
 
       {/* Events List */}
       <div className="px-4 pt-5 pb-6 space-y-4">
-        {allEvents.map((event) => (
-          <div
-            key={event.id}
-            className={`rounded-2xl overflow-hidden transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${isDark ? "bg-white/5 backdrop-blur-sm border border-white/10 hover:bg-white/10 hover:border-white/20" : "bg-white border border-gray-200 shadow-sm hover:shadow-md"}`}
-          >
-            {/* Event Header */}
-            <div className={`bg-gradient-to-r ${categoryColors[event.category] || 'from-gray-500 to-gray-600'} p-4 text-white`}>
-              <div className="flex items-start justify-between mb-2">
-                <h3 className="font-bold text-base flex-1">{event.title}</h3>
-                <span className="text-xs bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full font-semibold">{event.category}</span>
-              </div>
-              <p className="text-xs text-white/90 line-clamp-2">{event.description}</p>
-            </div>
-
-            {/* Event Details */}
-            <div className="p-4 space-y-3">
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm">
-                  <MapPin size={16} className="text-white" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-medium">Location</p>
-                  <p className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>{event.location}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-pink-500 rounded-xl flex items-center justify-center shadow-sm">
-                  <Calendar size={16} className="text-white" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-medium">Date & Time</p>
-                  <p className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>{event.date} at {event.time}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <div className="w-10 h-10 bg-gradient-to-br from-emerald-500 to-green-500 rounded-xl flex items-center justify-center shadow-sm">
-                  <Users size={16} className="text-white" />
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500 font-medium">Expected Attendees</p>
-                  <p className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>{event.attendees}+ Members</p>
-                </div>
-              </div>
-              <button className="w-full mt-3 bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white py-3 rounded-xl font-semibold shadow-md hover:shadow-lg transition-all active:scale-95">
-                Register for Event
-              </button>
-            </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader size={24} className="animate-spin text-orange-400" />
           </div>
-        ))}
+        ) : events.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center">
+            <div className="w-16 h-16 rounded-full bg-orange-50 flex items-center justify-center mb-3">
+              <Calendar size={28} className="text-orange-300" />
+            </div>
+            <p className={`font-bold text-base mb-1 ${isDark ? "text-white" : "text-gray-700"}`}>No events scheduled</p>
+            <p className="text-xs text-gray-400">Check back later for upcoming events.</p>
+          </div>
+        ) : (
+          events.map(event => (
+            <div
+              key={event.id}
+              className={`rounded-2xl overflow-hidden transition-all ${isDark ? "bg-white/5 border border-white/10" : "bg-white border border-gray-200 shadow-sm hover:shadow-md"}`}
+            >
+              {/* Event Header */}
+              <div className={`bg-gradient-to-r ${TYPE_COLORS[event.type] ?? "from-gray-500 to-gray-600"} p-4 text-white`}>
+                <div className="flex items-start justify-between mb-1.5">
+                  <h3 className="font-bold text-base flex-1 pr-2">
+                    {TYPE_EMOJI[event.type] ?? "📅"} {event.title}
+                  </h3>
+                  <span className="text-xs bg-white/20 backdrop-blur-sm px-2 py-1 rounded-full font-semibold capitalize shrink-0">
+                    {event.type}
+                  </span>
+                </div>
+                {event.notes && (
+                  <p className="text-xs text-white/90 line-clamp-2">{event.notes}</p>
+                )}
+              </div>
+
+              {/* Event Details */}
+              <div className="p-4 space-y-2.5">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+                    <MapPin size={15} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 font-medium">Location</p>
+                    <p className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+                      {event.location}{event.district ? `, ${event.district}` : ""}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-gradient-to-br from-orange-500 to-pink-500 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+                    <Calendar size={15} className="text-white" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 font-medium">Date & Time</p>
+                    <p className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+                      {formatDate(event.event_date)}
+                      {event.event_time && event.event_time !== "TBD" ? ` · ${event.event_time}` : ""}
+                    </p>
+                  </div>
+                </div>
+
+                {event.expected_attendance > 0 && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-gradient-to-br from-emerald-500 to-green-500 rounded-xl flex items-center justify-center shadow-sm shrink-0">
+                      <Users size={15} className="text-white" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-gray-400 font-medium">Expected Attendees</p>
+                      <p className={`text-sm font-semibold ${isDark ? "text-gray-200" : "text-gray-800"}`}>
+                        {event.expected_attendance.toLocaleString()}+ Members
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* RSVP stats */}
+                {(event.going_count > 0 || event.interested_count > 0) && (
+                  <div className="flex gap-3 pt-1">
+                    <span className="text-xs text-gray-400">✅ {event.going_count} going</span>
+                    <span className="text-xs text-gray-400">⭐ {event.interested_count} interested</span>
+                  </div>
+                )}
+
+                {/* RSVP buttons */}
+                <div className="flex gap-2 pt-1">
+                  <button
+                    onClick={() => handleRsvp(event.id, "going")}
+                    disabled={rsvping.has(event.id)}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                      event.my_rsvp === "going"
+                        ? "bg-emerald-600 text-white shadow-md"
+                        : "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                    }`}
+                  >
+                    {rsvping.has(event.id) ? "..." : event.my_rsvp === "going" ? "✅ Going" : "Going"}
+                  </button>
+                  <button
+                    onClick={() => handleRsvp(event.id, "interested")}
+                    disabled={rsvping.has(event.id)}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all active:scale-95 ${
+                      event.my_rsvp === "interested"
+                        ? "bg-blue-600 text-white shadow-md"
+                        : "bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                    }`}
+                  >
+                    {rsvping.has(event.id) ? "..." : event.my_rsvp === "interested" ? "⭐ Interested" : "Interested"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
     </div>
   );
