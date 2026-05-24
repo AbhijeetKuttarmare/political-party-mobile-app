@@ -2,6 +2,8 @@ const db     = require("../config/database");
 const logger = require("../middleware/logger");
 const multer = require("multer");
 const XLSX   = require("xlsx");
+const path   = require("path");
+const fs     = require("fs");
 
 const excelUpload = multer({
   storage: multer.memoryStorage(),
@@ -13,6 +15,44 @@ const excelUpload = multer({
 });
 
 exports.importCabinetUpload = excelUpload.single("excel");
+
+/* ─── Photo upload multer ───────────────────────────────────── */
+const leadersUploadDir = path.join(__dirname, "../../../uploads/leaders");
+if (!fs.existsSync(leadersUploadDir)) fs.mkdirSync(leadersUploadDir, { recursive: true });
+
+const photoStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, leadersUploadDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, `leader_${req.params.id}_${Date.now()}${ext}`);
+  },
+});
+
+const photoUpload = multer({
+  storage: photoStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /\.(jpg|jpeg|png|webp|gif)$/i.test(file.originalname);
+    cb(ok ? null : new Error("Only image files allowed (jpg, png, webp)"), ok);
+  },
+});
+
+exports.uploadPhotoMiddleware = photoUpload.single("photo");
+
+/* ─── POST /api/leaders/:id/photo ───────────────────────────── */
+exports.uploadPhoto = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: "Image file required" });
+    const photoUrl = `/uploads/leaders/${req.file.filename}`;
+    const result = await db.query(
+      "UPDATE party_leaders SET photo_url = $1 WHERE id = $2 RETURNING id, photo_url",
+      [photoUrl, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ error: "Leader not found" });
+    logger.info(`[LEADERS] Photo uploaded for id=${req.params.id}`);
+    res.json({ photo_url: photoUrl });
+  } catch (err) { next(err); }
+};
 
 /* ─── POST /api/leaders/import-cabinet  (Excel upload) ─────── */
 exports.importCabinet = async (req, res, next) => {

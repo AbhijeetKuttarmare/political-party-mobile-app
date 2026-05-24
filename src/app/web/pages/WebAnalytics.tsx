@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "../../context/AuthContext";
-import { TrendingUp, Target, Users, BarChart2, Upload, Crown, Loader, CheckCircle, AlertCircle, X, Pencil, Trash2 } from "lucide-react";
+import { TrendingUp, Target, Users, BarChart2, Upload, Crown, Loader, CheckCircle, AlertCircle, X, Pencil, Trash2, Link, ImagePlus } from "lucide-react";
 
 const ELECTIONS = [
   { id: "zp", label: "Zilla Parishad" },
@@ -60,7 +60,12 @@ export default function WebAnalytics() {
 
   /* ── Edit / Delete state ── */
   const [editingMember,    setEditingMember]    = useState<CabinetMember | null>(null);
-  const [editForm,         setEditForm]         = useState({ name: "", designation: "", department: "", party: "" });
+  const [editForm,         setEditForm]         = useState({ name: "", designation: "", department: "", party: "", photo_url: "" });
+  const [photoTab,         setPhotoTab]         = useState<"upload" | "url">("upload");
+  const [photoFile,        setPhotoFile]        = useState<File | null>(null);
+  const [photoPreview,     setPhotoPreview]     = useState<string>("");
+  const [uploadingPhoto,   setUploadingPhoto]   = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const [saving,           setSaving]           = useState(false);
   const [deletingMember,   setDeletingMember]   = useState<CabinetMember | null>(null);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState(false);
@@ -111,13 +116,36 @@ export default function WebAnalytics() {
       designation: member.designation ?? "",
       department:  member.department  ?? "",
       party:       member.party       ?? "",
+      photo_url:   member.photo_url   ?? "",
     });
+    setPhotoTab("upload");
+    setPhotoFile(null);
+    setPhotoPreview(member.photo_url ?? "");
   }
 
   async function handleSaveEdit() {
     if (!editingMember) return;
     setSaving(true);
     try {
+      let finalPhotoUrl = editForm.photo_url.trim() || editingMember.photo_url;
+
+      // Upload photo file first if one was picked
+      if (photoFile) {
+        setUploadingPhoto(true);
+        const fd = new FormData();
+        fd.append("photo", photoFile);
+        const pRes = await fetch(`/api/leaders/${editingMember.id}/photo`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+        if (pRes.ok) {
+          const pData = await pRes.json();
+          finalPhotoUrl = pData.photo_url;
+        }
+        setUploadingPhoto(false);
+      }
+
       const res = await fetch(`/api/leaders/${editingMember.id}`, {
         method: "PUT",
         headers: { ...authHdr, "Content-Type": "application/json" },
@@ -126,14 +154,17 @@ export default function WebAnalytics() {
           designation: editForm.designation.trim() || undefined,
           department:  editForm.department.trim()  || undefined,
           party:       editForm.party.trim()       || undefined,
+          photo_url:   finalPhotoUrl               || null,
         }),
       });
       if (res.ok) {
         const updated = await res.json();
         setCabinet(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
         setEditingMember(null);
+        setPhotoFile(null);
+        setPhotoPreview("");
       }
-    } finally { setSaving(false); }
+    } finally { setSaving(false); setUploadingPhoto(false); }
   }
 
   async function handleDeleteOne() {
@@ -476,20 +507,85 @@ export default function WebAnalytics() {
 
       {/* ── Edit Cabinet Member Modal ───────────────────────── */}
       {editingMember && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setEditingMember(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => { setEditingMember(null); setPhotoFile(null); setPhotoPreview(""); }}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
               <h3 className="font-black text-gray-900 text-base">Edit Cabinet Member</h3>
-              <button onClick={() => setEditingMember(null)} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+              <button onClick={() => { setEditingMember(null); setPhotoFile(null); setPhotoPreview(""); }} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
                 <X size={16} className="text-gray-500" />
               </button>
             </div>
-            <div className="space-y-3">
+
+            <div className="px-6 py-4 space-y-4">
+              {/* Photo section */}
+              <div>
+                <label className="text-xs font-bold text-gray-600 mb-2 block">Photo</label>
+                {/* Preview */}
+                <div className="flex items-center gap-4 mb-3">
+                  <div className="w-16 h-16 rounded-full overflow-hidden shrink-0 border-2 border-gray-200 bg-gray-50 flex items-center justify-center">
+                    {photoPreview ? (
+                      <img src={photoPreview} alt="preview" className="w-full h-full object-cover" onError={() => setPhotoPreview("")} />
+                    ) : (
+                      <div className={`w-full h-full bg-gradient-to-br ${avatarGradient(editingMember.name)} flex items-center justify-center text-white font-black text-lg`}>
+                        {initials(editingMember.name)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-gray-500 mb-1">Upload a photo or paste an image URL</p>
+                    {photoPreview && (
+                      <button onClick={() => { setPhotoPreview(""); setPhotoFile(null); setEditForm(f => ({ ...f, photo_url: "" })); }}
+                        className="text-[10px] text-red-500 hover:underline font-medium">
+                        Remove photo
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex rounded-xl bg-gray-100 p-1 mb-3">
+                  <button onClick={() => setPhotoTab("upload")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all ${photoTab === "upload" ? "bg-white shadow text-gray-800" : "text-gray-500 hover:text-gray-700"}`}>
+                    <ImagePlus size={13} /> Upload Image
+                  </button>
+                  <button onClick={() => setPhotoTab("url")}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-bold transition-all ${photoTab === "url" ? "bg-white shadow text-gray-800" : "text-gray-500 hover:text-gray-700"}`}>
+                    <Link size={13} /> Paste URL
+                  </button>
+                </div>
+
+                {photoTab === "upload" ? (
+                  <div>
+                    <input ref={photoInputRef} type="file" accept="image/*" className="hidden"
+                      onChange={e => {
+                        const f = e.target.files?.[0];
+                        if (!f) return;
+                        setPhotoFile(f);
+                        setPhotoPreview(URL.createObjectURL(f));
+                        e.target.value = "";
+                      }} />
+                    <button onClick={() => photoInputRef.current?.click()}
+                      className="w-full py-2.5 rounded-xl border-2 border-dashed border-gray-200 hover:border-amber-300 hover:bg-amber-50 transition-colors text-xs font-semibold text-gray-500 hover:text-amber-600 flex items-center justify-center gap-2">
+                      <Upload size={14} />
+                      {photoFile ? photoFile.name : "Choose image (jpg, png, webp)"}
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    value={editForm.photo_url}
+                    onChange={e => { setEditForm(f => ({ ...f, photo_url: e.target.value })); setPhotoPreview(e.target.value); setPhotoFile(null); }}
+                    placeholder="https://example.com/photo.jpg"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100 transition-all"
+                  />
+                )}
+              </div>
+
+              {/* Text fields */}
               {[
-                { label: "Minister Name", key: "name" as const, placeholder: "Full name" },
+                { label: "Minister Name", key: "name" as const,        placeholder: "Full name" },
                 { label: "Position",      key: "designation" as const, placeholder: "e.g. Cabinet Minister" },
-                { label: "Department",    key: "department" as const, placeholder: "e.g. Home, Finance…" },
-                { label: "Party",         key: "party" as const, placeholder: "e.g. NCP-SP" },
+                { label: "Department",    key: "department" as const,  placeholder: "e.g. Home, Finance…" },
+                { label: "Party",         key: "party" as const,       placeholder: "e.g. NCP-SP, BJP" },
               ].map(({ label, key, placeholder }) => (
                 <div key={key}>
                   <label className="text-xs font-bold text-gray-600 mb-1 block">{label}</label>
@@ -502,8 +598,10 @@ export default function WebAnalytics() {
                 </div>
               ))}
             </div>
-            <div className="flex gap-3 mt-5">
-              <button onClick={() => setEditingMember(null)} className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
+
+            <div className="flex gap-3 px-6 pb-6">
+              <button onClick={() => { setEditingMember(null); setPhotoFile(null); setPhotoPreview(""); }}
+                className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">
                 Cancel
               </button>
               <button
@@ -511,8 +609,8 @@ export default function WebAnalytics() {
                 disabled={saving || !editForm.name.trim()}
                 className="flex-1 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white text-sm font-bold transition-colors flex items-center justify-center gap-2"
               >
-                {saving ? <Loader size={14} className="animate-spin" /> : null}
-                {saving ? "Saving…" : "Save Changes"}
+                {(saving || uploadingPhoto) ? <Loader size={14} className="animate-spin" /> : null}
+                {uploadingPhoto ? "Uploading…" : saving ? "Saving…" : "Save Changes"}
               </button>
             </div>
           </div>
